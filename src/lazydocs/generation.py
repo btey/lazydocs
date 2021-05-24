@@ -33,11 +33,10 @@ _SOURCE_BADGE_TEMPLATE = """
 """
 
 _SEPARATOR = """
----
 """
 
 _FUNC_TEMPLATE = """
-{section} <kbd>{func_type}</kbd> `{header}`
+{section} ({func_type}) `{header}`
 
 ```python
 {funcdef}
@@ -46,9 +45,20 @@ _FUNC_TEMPLATE = """
 {doc}
 """
 
+_DIAGRAM_TEMPLATE = """graph LR
+    {graph}
+    {style}"""
+
+_DIAGRAM_NODE_STYLE_TEMPLATE = "style {node_id} fill:#f2f2f2,stroke:#bfbfbf,stroke-width:1px,color:#a6a6a6,stroke-dasharray: 0 0"
 
 _CLASS_TEMPLATE = """
-{section} <kbd>class</kbd> `{header}`
+{section} (Class) {header}
+
+Base class relationship:
+
+```mermaid
+{diagram}
+```
 {doc}
 {init}
 {variables}
@@ -56,15 +66,26 @@ _CLASS_TEMPLATE = """
 {methods}
 """
 
-_MODULE_TEMPLATE = """
-{section} <kbd>module</kbd> `{header}`
+_YAML_TEMPLATE = """---
+title: {title}
+description:
+published: true
+date: {date}
+tags:
+editor: markdown
+dateCreated: {date_created}
+---
+"""
+
+_MODULE_TEMPLATE = """{yaml_header}
+{section} (Module) {header}
 {doc}
 {global_vars}
 {functions}
 {classes}
 """
 
-_OVERVIEW_TEMPLATE = """
+_OVERVIEW_TEMPLATE = """{yaml_header}
 # API Overview
 
 ## Modules
@@ -78,10 +99,6 @@ _OVERVIEW_TEMPLATE = """
 """
 
 _WATERMARK_TEMPLATE = """
-
----
-
-_This file was automatically generated via [lazydocs](https://github.com/ml-tooling/lazydocs)._
 """
 
 _MKDOCS_PAGES_TEMPLATE = """title: API Reference
@@ -185,7 +202,7 @@ def to_md_file(
     filename: str,
     out_path: str = ".",
     watermark: bool = True,
-    disable_markdownlint: bool = True,
+    disable_markdownlint: bool = False,
 ) -> None:
     """Creates an API docs file from a provided text.
 
@@ -559,13 +576,13 @@ class MarkdownGenerator(object):
             )
 
         if inspect.ismethod(func):
-            func_type = "classmethod"
+            func_type = "ClassMethod"
         else:
             if _get_class_that_defined_method(func) is None:
-                func_type = "function"
+                func_type = "Function"
             else:
                 # function of a class
-                func_type = "method"
+                func_type = "Method"
 
         self.generated_objects.append(
             {
@@ -587,8 +604,8 @@ class MarkdownGenerator(object):
             doc=doc if doc else "*No documentation found.*",
         )
 
-        if path:
-            markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
+        #if path:
+        #    markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
 
         return markdown
 
@@ -625,6 +642,37 @@ class MarkdownGenerator(object):
                 "description": summary,
             }
         )
+
+        graph_nodes = []
+        graph_nodes_style = []
+        graph_lines = []
+        nodes_per_line = 4
+        graph_lines_qnt = 0
+        cls_base_classes = list(inspect.getmro(cls))
+        cls_base_classes.reverse()
+        for idx, node in enumerate(cls_base_classes):
+            if (idx > 0 and
+               ((idx % nodes_per_line == 0 and graph_lines_qnt == 0) or
+               ((idx + graph_lines_qnt) % nodes_per_line == 0 and graph_lines_qnt > 0))):
+                graph_lines.append(" --> ".join(graph_nodes))
+                graph_nodes.clear()
+                custom_node_id = idx - 0.9
+                graph_nodes.append("{}({}.{})".format(
+                        custom_node_id,
+                        cls_base_classes[idx - 1].__module__,
+                        cls_base_classes[idx - 1].__name__
+                    )
+                )
+                graph_nodes_style.append(_DIAGRAM_NODE_STYLE_TEMPLATE.format(node_id = custom_node_id))
+                graph_lines_qnt += 1
+            graph_nodes.append("{}({}.{})".format(
+                    idx,
+                    node.__module__,
+                    node.__name__
+                )
+            )
+        if graph_nodes:
+            graph_lines.append(" --> ".join(graph_nodes))
 
         try:
             # object module should be the same as the calling module
@@ -690,6 +738,7 @@ class MarkdownGenerator(object):
 
         markdown = _CLASS_TEMPLATE.format(
             section=section,
+            diagram=_DIAGRAM_TEMPLATE.format(graph="\n".join(graph_lines),style="\n".join(graph_nodes_style)) if graph_lines else "",
             header=header,
             doc=doc if doc else "",
             init=init,
@@ -698,8 +747,8 @@ class MarkdownGenerator(object):
             methods="".join(methods),
         )
 
-        if path:
-            markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
+        #if path:
+        #    markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
 
         return markdown
 
@@ -784,7 +833,14 @@ class MarkdownGenerator(object):
             new_list = ["\n**Global Variables**", "---------------", *variables]
             variables = new_list
 
+        yaml_header = _YAML_TEMPLATE.format(
+            title=modname.title().replace("_"," "),
+            date="{}Z".format(datetime.datetime.utcnow().isoformat(timespec='milliseconds')),
+            date_created="{}Z".format(datetime.datetime.utcnow().isoformat(timespec='milliseconds')),
+        )
+
         markdown = _MODULE_TEMPLATE.format(
+            yaml_header=yaml_header,
             header=modname,
             section="#" * depth,
             doc=doc,
@@ -793,8 +849,8 @@ class MarkdownGenerator(object):
             classes="".join(classes) if classes else "",
         )
 
-        if path:
-            markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
+        #if path:
+        #    markdown = _SOURCE_BADGE_TEMPLATE.format(path=path) + markdown
 
         return markdown
 
@@ -867,8 +923,17 @@ class MarkdownGenerator(object):
             entries_md = "\n- No functions"
         functions_md = entries_md
 
+        yaml_header = _YAML_TEMPLATE.format(
+            title="API Overview",
+            date="{}Z".format(datetime.datetime.utcnow().isoformat(timespec='milliseconds')),
+            date_created="{}Z".format(datetime.datetime.utcnow().isoformat(timespec='milliseconds')),
+        )
+
         return _OVERVIEW_TEMPLATE.format(
-            modules=modules_md, classes=classes_md, functions=functions_md
+            yaml_header=yaml_header,
+            modules=modules_md,
+            classes=classes_md,
+            functions=functions_md
         )
 
 
@@ -1074,7 +1139,7 @@ def generate_docs(
         )
 
         # Write mkdocs pages file
-        print("Writing mkdocs .pages file.")
-        # TODO: generate navigation items to fix problem with naming
-        with open(os.path.join(output_path, ".pages"), "w") as f:
-            f.write(_MKDOCS_PAGES_TEMPLATE.format(overview_file=overview_file))
+        ##print("Writing mkdocs .pages file.")
+        ### TODO: generate navigation items to fix problem with naming
+        ##with open(os.path.join(output_path, ".pages"), "w") as f:
+        ##    f.write(_MKDOCS_PAGES_TEMPLATE.format(overview_file=overview_file))
