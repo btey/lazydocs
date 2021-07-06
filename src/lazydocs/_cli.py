@@ -5,6 +5,7 @@ from typing import List, Optional
 import typer
 
 from lazydocs import generate_docs
+# from .generation import generate_docs
 
 app = typer.Typer()
 
